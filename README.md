@@ -1,8 +1,8 @@
-# 💬 Chatbot template
+# 💬 Chatbot
 
 A simple Streamlit app that uses Together's AI Chat Models.
 
-[![Open chatbot7 in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chatbot7.streamlit.app/)
+Demo the code in this repo here: https://chatbot7.streamlit.app/
 
 ### How to run it on your own machine
 
@@ -16,4 +16,8 @@ A simple Streamlit app that uses Together's AI Chat Models.
 
     ```
     $ streamlit run streamlit_app.py
+
+    # or with debug print and together api key
+    TOGETHER_API_KEY=xxxxxxx DEBUG_PRINT=1 streamlit run streamlit_app.py
+
     ```
