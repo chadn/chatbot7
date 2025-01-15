@@ -18,7 +18,7 @@ together_api_key = os.getenv('TOGETHER_API_KEY')
 
 def dbg(msg):
     if DEBUG_PRINT:
-        print(f"{datetime.now().strftime("%H:%M:%S")} {msg}", flush=True)
+        print(f"{datetime.now().strftime('%H:%M:%S')} {msg}", flush=True)
 
 dbg(f"DEBUG_PRINT set to {DEBUG_PRINT}")
 
@@ -49,7 +49,7 @@ def fragment_download():
         label="Download Messages as JSON",
         data=st.session_state.messages_json,
         on_click=lambda: messages_append(),
-        file_name=f"chatbot7_messages_{datetime.now().strftime("%Y-%m-%d")}.json",
+        file_name=f"chatbot7_messages_{datetime.now().strftime('%Y-%m-%d')}.json",
         mime="application/json"
     )
 
