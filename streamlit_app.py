@@ -4,6 +4,7 @@ from together import Together
 import json
 from datetime import datetime, timedelta, time
 from io import StringIO
+from typing import Dict, List, Optional, Any
 
 
 # Show title and description.
@@ -18,7 +19,7 @@ together_api_key = os.getenv('TOGETHER_API_KEY')
 
 def dbg(msg):
     if DEBUG_PRINT:
-        print(f"{datetime.now().strftime('%H:%M:%S')} {msg}", flush=True)
+        print(f"{datetime.now().strftime('%H:%M:%S.%f')} {msg}", flush=True)
 
 dbg(f"DEBUG_PRINT set to {DEBUG_PRINT}")
 
@@ -35,61 +36,110 @@ else:
 
 together = Together(api_key=together_api_key)
 
-
 @st.fragment
-def fragment_download():
-    dbg(f"Initializing fragment_download()")
-    messages_append()
-    # Create a download link
-    #
-    #TODO - should not have to clicke twice to get latest json.
+def download_messages() -> None:
+    """Create a download button to save chat messages as JSON file.
     
-    dbg(f"Initializing download_button()")
+    Note:
+        Currently requires clicking twice to get latest messages due to 
+        Streamlit limitations with deferred data updates.
+    """
+
+    #TODO - should not have to click twice to get latest json, but we do for now.
+    #TODO - Revisit once "Deferred data" is out, see roadmap.streamlit.app 
+    # https://github.com/streamlit/streamlit/issues/5053
+    # https://discuss.streamlit.io/t/generating-a-report-and-performing-download-on-download-button-click/53095/2
+     
+    dbg("Initializing download_messages()")        
+    now = datetime.now()
+    fn = f"chatbot7_messages_{now.strftime('%Y-%m-%d')}_{int(now.timestamp())}.json"
+    st.session_state.messages_json = json.dumps(st.session_state.messages)
+    dbg(f"st.session_state.messages_json now {len(st.session_state.messages_json)} bytes, {len(st.session_state.messages)} messages")
+    st.markdown("Save chat messages by downloading\n(bug: click twice to get latest).")
     st.download_button(
         label="Download Messages as JSON",
         data=st.session_state.messages_json,
-        on_click=lambda: messages_append(),
-        file_name=f"chatbot7_messages_{datetime.now().strftime('%Y-%m-%d')}.json",
+        on_click=lambda: dbg("Download button clicked"),
+        file_name=fn,
         mime="application/json"
     )
+    dbg(f"Initialized download_button {len(st.session_state.messages_json)} bytes for file_name={fn}")
 
-@st.fragment
-def fragment_upload():
-    dbg(f"Initializing fragment_upload()")
-    uploaded_file = st.file_uploader("Choose a file", type="json")
-    if uploaded_file is not None:
+
+# If this is a @st.fragment, then messages do not appear in chat window, need to manually add them
+def upload_messages() -> None:
+    """Handle file upload to restore previous chat messages from JSON file.
+    
+    Allows users to upload a previously saved chat history JSON file.
+    Updates st.session_state.messages with the uploaded content if successful.
+    Displays error message if JSON parsing fails or format is invalid.
+    """
+    dbg("Initializing upload_messages()")
+    
+    st.session_state.uploaded_file = st.file_uploader("Restore Saved Chat Messages.\nChoose a File", type="json")
+    
+    if st.session_state.uploaded_file is not None:
         try:
-            dbg(f"Uploaded {uploaded_file.size} bytes from {uploaded_file.name}")
-            stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
+            dbg(f"Uploaded {st.session_state.uploaded_file.size} bytes from {st.session_state.uploaded_file.name}")
+            stringio = StringIO(st.session_state.uploaded_file.getvalue().decode("utf-8"))
             string_data = stringio.read()
-            st.session_state.messages = json.loads(string_data)
-            #
-            #TODO - messages should not be duplicated on the web page, but should appear when uploaded
-            #for m in st.session_state.messages:
-            #    with st.chat_message(m["role"]):
-            #        st.markdown(m["content"])
-            uploaded_file = None 
+            messages = json.loads(string_data)
+            
+            # Validate uploaded messages format
+            if not isinstance(messages, list):
+                st.error("Uploaded JSON must contain a list of messages")
+                return
+            for msg in messages:
+                if not isinstance(msg, dict) or not all(key in msg for key in ['role', 'content']):
+                    st.error("Each message must be a dictionary with 'role' and 'content' keys")
+                    return
+            st.session_state.messages = messages
+            dbg(f"Uploaded {len(st.session_state.messages)} messages {st.session_state.uploaded_file.size} bytes from {st.session_state.uploaded_file.name}")
+            st.session_state.uploaded_file = None 
+            dbg(f"Upload Complete")
+            
         except Exception as e:
             st.error("Error parsing JSON file. Please ensure the file is in the correct format.", icon="🚨")
             st.exception(e)
 
-def messages_append(m=None):
-    if m:
-        if "dt" not in m:
-            m["dt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
-        st.session_state.messages.append(m)
-    st.session_state.messages_json = json.dumps(st.session_state.messages)
-    dbg(f"st.session_state.messages_json now {len(st.session_state.messages_json)} bytes, {len(st.session_state.messages)} messages")
+def messages_append(m: Dict[str, str]) -> None:
+    """Append a message to the session state messages.
+    
+    Args:
+        m (Dict[str, str]): Message dictionary containing 'role' and 'content' keys.
+            Will add 'dt' timestamp if not present.
+    
+    Raises:
+        ValueError: If message dict is missing required keys or has invalid types
+    """
+    if not m:
+        return
+        
+    if not isinstance(m, dict):
+        raise ValueError("Message must be a dictionary")
+        
+    required_keys = ['role', 'content']
+    if not all(key in m for key in required_keys):
+        raise ValueError(f"Message missing required keys: {required_keys}")
+        
+    if not all(isinstance(m[key], str) for key in required_keys):
+        raise ValueError("Message 'role' and 'content' must be strings")
+        
+    if "dt" not in m:
+        m["dt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z")
+    
+    st.session_state.messages.append(m)    
+    dbg(f"Now have {len(st.session_state.messages)} messages")
 
 
 # Create a session state variable to store the chat messages. This ensures that the
 # messages persist across reruns.
 if "messages" not in st.session_state:
     st.session_state.messages = []
-    st.session_state.messages_json = json.dumps(st.session_state.messages)
 
-fragment_download()
-fragment_upload()
+with st.sidebar:
+    download_messages()
+    upload_messages()
 
 # Display the existing chat messages via `st.chat_message`.
 for message in st.session_state.messages:
@@ -124,9 +174,6 @@ if prompt := st.chat_input("What can I answer for you today?"):
     messages_append({"role": "assistant", "content": response.choices[0].message.content})
 
 
-#TODO - create a HTML button / link that will download json of st.session_state.messages
-# https://discuss.streamlit.io/t/from-a-list-dict-to-ready-to-download-file/66430
-#TODO - create an input (form box) that will except json messages
 
 
 #TODO use langchain https://python.langchain.com/v0.1/docs/integrations/chat/together/
