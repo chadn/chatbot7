@@ -8,6 +8,7 @@ setup(
     install_requires=[
         "streamlit",
         "together",
+        "parea-ai",
         "pytest",
         "python-dotenv",
     ],
