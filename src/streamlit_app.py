@@ -1,52 +1,70 @@
+"""
+Main Streamlit application for the chatbot interface.
+"""
 import os
 import streamlit as st
-from together import Together
-import json
-from datetime import datetime, timedelta, time
+from datetime import datetime
 from io import StringIO
-from typing import Dict, List, Optional, Any
+from typing import Optional
+from dotenv import load_dotenv
+
 from services.chat_model import ChatModelService
 from services.chat_history import ChatHistoryManager
-from dotenv import load_dotenv 
-
-load_dotenv() 
-DEBUG_PRINT = os.getenv('DEBUG_PRINT')
-together_api_key = os.getenv('TOGETHER_API_KEY')
-
-
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses Together's chat models to generate responses. "
-    "To use this app, you need to provide an Together API key, which you can get from [api.together.xyz](https://api.together.xyz/settings/api-keys). "
-)
 
 def dbg(msg):
-    if DEBUG_PRINT:
+    if st.session_state.dbg_print:
         print(f"{datetime.now().strftime('%H:%M:%S.%f')} {msg}", flush=True)
 
-dbg(f"DEBUG_PRINT set to {DEBUG_PRINT}")
+def init_session_state() -> None:
+    """Initialize session state variables."""
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = ChatHistoryManager()
+    if "dbg_print" not in st.session_state:
+        st.session_state.dbg_print = os.getenv('DEBUG_PRINT')
+    dbg(f"DEBUG_PRINT set to {st.session_state.dbg_print} session state initialized")
 
-if  together_api_key:
-    st.write("Using TOGETHER_API_KEY from env variable")
-else:
-    # Ask user for their OpenAI API key via `st.text_input`.
-    # Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-    # via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-    together_api_key = st.text_input("Together API Key", type="password")
-    if not together_api_key:
+def setup_page() -> None:
+    """Configure page settings and display title."""
+    st.set_page_config(
+        page_title="AI Chatbot",
+        page_icon="💬",
+        layout="wide"
+    )
+    st.title("💬 Chatbot")
+    st.write(
+        "This is a simple chatbot that uses Together's chat models to generate responses. "
+        "To use this app, you need to provide a Together API key."
+    )
+
+def get_api_key() -> Optional[str]:
+    """Get API key from environment or user input.
+    
+    Returns:
+        Optional[str]: API key if available, None otherwise
+    """
+    api_key = os.getenv('TOGETHER_API_KEY')
+    if api_key:
+        st.write("Using TOGETHER_API_KEY from env variable")
+        return api_key
+        
+    api_key = st.text_input("Together API Key", type="password")
+    if not api_key:
         st.info("Please add your Together API key to continue.", icon="🗝️")
         st.stop()
+    return api_key
 
-together = Together(api_key=together_api_key)
-
-# Initialize services
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = ChatHistoryManager()
-
-if together_api_key:
-    chat_model = ChatModelService(together_api_key)
+@st.cache_resource
+def get_chat_model(api_key: str) -> ChatModelService:
+    """Initialize and cache the chat model service.
     
+    Args:
+        api_key: Together AI API key
+        
+    Returns:
+        ChatModelService: Initialized chat model service
+    """
+    return ChatModelService(api_key)
+
 @st.fragment
 def download_messages() -> None:
     """Create a download button to save chat messages as JSON file.
@@ -75,7 +93,7 @@ def download_messages() -> None:
     )
     dbg(f"Initialized download_button {len(messages_json)} bytes for file_name={fn}")
 
-# Update upload_messages()
+
 def upload_messages() -> None:
     """Handle file upload to restore previous chat messages from JSON file.
     
@@ -84,7 +102,13 @@ def upload_messages() -> None:
     Displays error message if JSON parsing fails or format is invalid.
     """
     dbg("Initializing upload_messages()")
-    uploaded_file = st.file_uploader("Restore Saved Chat Messages.\nChoose a File", type="json")    
+    # uploader_key https://discuss.streamlit.io/t/how-to-remove-the-uploaded-file/70346/3
+    if "uploader_key" not in st.session_state:
+        st.session_state["uploader_key"] = 1
+    uploaded_file = st.file_uploader(
+        "Restore Saved Chat Messages.\nChoose a File",
+        key=st.session_state.uploader_key,
+        type="json")    
     if uploaded_file is not None:
         try:
             dbg(f"Uploaded {uploaded_file.size} bytes from {uploaded_file.name}")
@@ -92,35 +116,68 @@ def upload_messages() -> None:
             string_data = stringio.read()
             st.session_state.chat_history.import_json(string_data)
             uploaded_file = None
+            st.session_state.uploader_key += 1
         except Exception as e:
             st.error("Error parsing JSON file. Please ensure the file is in the correct format.", icon="🚨")
             st.exception(e)
 
-with st.sidebar:
-    download_messages()
-    upload_messages()
+def setup_sidebar() -> None:
+    """Configure and display sidebar elements."""
+    with st.sidebar:
+        download_messages()
+        upload_messages()
 
-# Update chat display and input handling
-for message in st.session_state.chat_history.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+def display_chat_history() -> None:
+    """Display all messages in the chat history."""
+    for message in st.session_state.chat_history.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-if prompt := st.chat_input("What can I answer for you today?"):
-    message = {"role": "user", "content": prompt}
-    st.session_state.chat_history.append_message(message)
+def handle_user_input(chat_model: ChatModelService) -> None:
+    """Handle user input and generate responses.
     
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    response = chat_model.generate_response(st.session_state.chat_history.messages)
-    
-    with st.chat_message("assistant"):
-        st.markdown(response)
+    Args:
+        chat_model: Initialized chat model service
+    """
+    if prompt := st.chat_input("What can I answer for you today?"):
+        # Add user message
+        message = {"role": "user", "content": prompt}
+        st.session_state.chat_history.append_message(message)
+        with st.chat_message("user"):
+            st.markdown(prompt)
         
-    st.session_state.chat_history.append_message({
-        "role": "assistant",
-        "content": response
-    })
+        # Generate and display response
+        try:
+            response = chat_model.generate_response(
+                st.session_state.chat_history.messages
+            )
+            with st.chat_message("assistant"):
+                st.markdown(response)
+            
+            st.session_state.chat_history.append_message({
+                "role": "assistant",
+                "content": response
+            })
+        except Exception as e:
+            st.error(f"Error generating response: {str(e)}", icon="🚨")
+
+def main() -> None:
+    """Main application function."""
+    load_dotenv()
+    init_session_state()
+    setup_page()
+    setup_sidebar()
+    
+    if "api_key" not in st.session_state:
+        st.session_state.api_key = get_api_key()
+    if st.session_state.api_key:
+        if "chat_model" not in st.session_state:
+            st.session_state.chat_model = get_chat_model(st.session_state.api_key)
+        display_chat_history()
+        handle_user_input(st.session_state.chat_model)
+
+if __name__ == "__main__":
+    main()
 
 
 

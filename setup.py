@@ -12,11 +12,6 @@ setup(
         "pytest",
         "python-dotenv",
     ],
-    entry_points={
-        'console_scripts': [
-            'chatbot-app=run_app:main',
-        ],
-    },
     author="Chad Norwood",
     author_email="chad@chadnorwood.com",
     description="A Streamlit chatbot application using Together AI",
