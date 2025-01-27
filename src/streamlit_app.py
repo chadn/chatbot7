@@ -24,12 +24,6 @@ def init_session_state() -> None:
     dbg(f"DEBUG_PRINT set to {st.session_state.dbg_print} session state initialized")
 
 def setup_page() -> None:
-    """Configure page settings and display title."""
-    st.set_page_config(
-        page_title="AI Chatbot",
-        page_icon="💬",
-        layout="wide"
-    )
     st.title("💬 Chatbot")
     st.write(
         "This is a simple chatbot that uses Together's chat models to generate responses. "
